@@ -1703,8 +1703,6 @@ impl Document {
         if success {
             // reset changeset to fix len
             self.changes = ChangeSet::new(self.text().slice(..));
-            // Sync with changes with the jumplist selections.
-            view.sync_changes(self);
         }
         success
     }
@@ -1790,8 +1788,6 @@ impl Document {
         if success {
             // reset changeset to fix len
             self.changes = ChangeSet::new(self.text().slice(..));
-            // Sync with changes with the jumplist selections.
-            view.sync_changes(self);
         }
         success
     }
@@ -1825,9 +1821,6 @@ impl Document {
         let mut history = self.history.take();
         history.commit_revision(&transaction, &old_state);
         self.history.set(history);
-
-        // Update jumplist entries in the view.
-        view.apply(&transaction, self);
     }
 
     pub fn id(&self) -> DocumentId {
@@ -1875,10 +1868,34 @@ impl Document {
 
     /// Get the current revision number
     pub fn get_current_revision(&mut self) -> usize {
+        self.current_revision()
+    }
+
+    pub(crate) fn current_revision(&self) -> usize {
         let history = self.history.take();
         let current_revision = history.current_revision();
         self.history.set(history);
         current_revision
+    }
+
+    /// Maps a selection of the text at history revision `revision` to the current text.
+    pub(crate) fn map_selection_from_revision(
+        &self,
+        selection: &Selection,
+        revision: usize,
+    ) -> Selection {
+        let history = self.history.take();
+        let committed = (history.current_revision() != revision)
+            .then(|| history.changes_since(revision))
+            .flatten();
+        self.history.set(history);
+        let mut selection = selection.clone();
+        if let Some(committed) = committed {
+            selection = selection.map(committed.changes());
+        }
+        selection
+            .map(&self.changes)
+            .ensure_invariants(self.text.slice(..))
     }
 
     /// Corresponding language scope name. Usually `source.<lang>`.
